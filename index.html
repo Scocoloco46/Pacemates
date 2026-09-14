@@ -343,8 +343,16 @@
       <div class="back" id="chat-back">←</div>
       <div class="avatar-circle" id="chat-avatar" style="width:38px;height:38px;font-size:16px;"></div>
       <div class="match-name" id="chat-name" style="flex:1;"></div>
+      <div id="chat-cal-view-btn" title="Sportkalender ansehen" style="cursor:pointer;font-size:18px;padding:4px;">🗓️</div>
       <div id="chat-report-btn" title="Nutzer melden" style="cursor:pointer;font-size:18px;padding:4px;">⚠️</div>
       <div id="chat-block-btn" title="Nutzer blockieren" style="cursor:pointer;font-size:18px;padding:4px;">🚫</div>
+    </div>
+    <div id="chat-cal-panel" class="hidden" style="background:var(--card);border-bottom:1px solid var(--border);padding:12px 16px;font-size:12.5px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <strong>🗓️ Sportkalender von <span id="chat-cal-name"></span></strong>
+        <span id="chat-cal-close" style="cursor:pointer;font-weight:800;">✕</span>
+      </div>
+      <div id="chat-cal-content"></div>
     </div>
     <div class="chat-body" id="chat-body" style="flex:1;overflow-y:auto;"></div>
     <div class="chat-input-bar">
@@ -477,6 +485,31 @@
         </div>
       </div>
       <div class="field" style="border-top:1px solid var(--border);padding-top:14px;margin-top:2px;">
+        <label>📅 Mein Sportkalender</label>
+        <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;">Trage ein, wann du welche Sportart ausübst. Erst wenn es zu einem Match kommt, sieht dein Match-Partner diesen Kalender.</div>
+        <div id="sport-calendar-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+        <div class="row-2">
+          <div class="field">
+            <label>Wochentag</label>
+            <select id="cal-weekday">
+              <option value="Montag">Montag</option>
+              <option value="Dienstag">Dienstag</option>
+              <option value="Mittwoch">Mittwoch</option>
+              <option value="Donnerstag">Donnerstag</option>
+              <option value="Freitag">Freitag</option>
+              <option value="Samstag">Samstag</option>
+              <option value="Sonntag">Sonntag</option>
+            </select>
+          </div>
+          <div class="field"><label>Uhrzeit</label><input type="text" id="cal-time" placeholder="18:00"></div>
+        </div>
+        <div class="field">
+          <label>Sportart</label>
+          <select id="cal-sport"></select>
+        </div>
+        <button type="button" class="btn-secondary" id="cal-add-btn" style="width:100%;">+ Eintrag hinzufügen</button>
+      </div>
+      <div class="field" style="border-top:1px solid var(--border);padding-top:14px;margin-top:2px;">
         <label>Blockierte Nutzer</label>
         <div id="blocked-users-list" style="font-size:12.5px;color:var(--muted);">Lade…</div>
       </div>
@@ -498,6 +531,7 @@ const SPORTS = ["Badminton","Baseball","Basketball","Biathlon","Billard","Boxen"
 const MAX_SPORTS = 5;
 const TRAINER_MAX_SPORTS = 8;
 const LEVELS = ["Anfänger","Amateur","Fortgeschritten","Profi","Expert"];
+const WEEKDAYS = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
 
 let sb = null;
 let configured = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
@@ -1961,6 +1995,7 @@ async function openChat(matchId, otherProfile){
   activeMatch = {id: matchId, other: otherProfile};
   document.getElementById('chat-avatar').innerHTML = avatarContentHtml(otherProfile);
   document.getElementById('chat-name').textContent = otherProfile.username || 'Unbekannt';
+  document.getElementById('chat-cal-panel').classList.add('hidden');
   document.getElementById('screen-discover').classList.add('hidden');
   document.getElementById('screen-matches').classList.add('hidden');
   document.getElementById('screen-profile').classList.add('hidden');
@@ -2236,8 +2271,103 @@ async function loadBlockedUsers(){
   });
 }
 
+let mySportCalendar = [];
+
+function fillCalSportSelect(){
+  const el = document.getElementById('cal-sport');
+  if(el.dataset.filled) return;
+  SPORTS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    el.appendChild(opt);
+  });
+  el.dataset.filled = '1';
+}
+
+function sortByWeekdayTime(entries){
+  return [...entries].sort((a, b) => {
+    const wa = WEEKDAYS.indexOf(a.weekday), wb = WEEKDAYS.indexOf(b.weekday);
+    if(wa !== wb) return wa - wb;
+    return (a.time || '').localeCompare(b.time || '');
+  });
+}
+
+async function loadSportCalendar(){
+  fillCalSportSelect();
+  const {data, error} = await sb.from('sport_calendar').select('*').eq('user_id', currentUser.id);
+  if(error){
+    document.getElementById('sport-calendar-list').innerHTML = '<div style="font-size:11.5px;color:var(--muted);">Konnte Kalender nicht laden: ' + escapeHtml(error.message) + '</div>';
+    return;
+  }
+  mySportCalendar = sortByWeekdayTime(data || []);
+  renderSportCalendarList();
+}
+
+function renderSportCalendarList(){
+  const el = document.getElementById('sport-calendar-list');
+  if(mySportCalendar.length === 0){
+    el.innerHTML = '<div style="font-size:11.5px;color:var(--muted);">Noch keine Einträge.</div>';
+    return;
+  }
+  const emoji = (s) => SPORT_EMOJI[s] || '🏅';
+  el.innerHTML = mySportCalendar.map(c => `
+    <div style="display:flex;align-items:center;justify-content:space-between;background:#F7F7F9;border-radius:10px;padding:8px 10px;font-size:12.5px;">
+      <span>${emoji(c.sportart)} ${escapeHtml(c.weekday)} · ${escapeHtml(c.time)} · ${escapeHtml(c.sportart)}</span>
+      <span class="remove-x" data-id="${c.id}" style="cursor:pointer;font-weight:800;color:var(--muted);">✕</span>
+    </div>
+  `).join('');
+  el.querySelectorAll('.remove-x').forEach(x => {
+    x.addEventListener('click', () => removeSportCalendarEntry(x.dataset.id));
+  });
+}
+
+async function addSportCalendarEntry(){
+  const weekday = document.getElementById('cal-weekday').value;
+  const time = document.getElementById('cal-time').value.trim();
+  const sportart = document.getElementById('cal-sport').value;
+  if(!time){ showMsg('profile-msg', 'Bitte eine Uhrzeit für den Kalendereintrag angeben.', 'error'); return; }
+  if(!sportart){ showMsg('profile-msg', 'Bitte eine Sportart für den Kalendereintrag wählen.', 'error'); return; }
+  const {error} = await sb.from('sport_calendar').insert({user_id: currentUser.id, weekday, time, sportart});
+  if(error){ showMsg('profile-msg', 'Fehler beim Speichern: ' + error.message, 'error'); return; }
+  document.getElementById('cal-time').value = '';
+  await loadSportCalendar();
+}
+
+async function removeSportCalendarEntry(id){
+  const {error} = await sb.from('sport_calendar').delete().eq('id', id);
+  if(error){ showMsg('profile-msg', 'Fehler beim Löschen: ' + error.message, 'error'); return; }
+  await loadSportCalendar();
+}
+
+async function toggleChatCalendarPanel(){
+  const panel = document.getElementById('chat-cal-panel');
+  if(!panel.classList.contains('hidden')){
+    panel.classList.add('hidden');
+    return;
+  }
+  if(!activeMatch || !activeMatch.other) return;
+  document.getElementById('chat-cal-name').textContent = activeMatch.other.username || 'Unbekannt';
+  document.getElementById('chat-cal-content').innerHTML = '<div style="color:var(--muted);">Lade…</div>';
+  panel.classList.remove('hidden');
+  const {data, error} = await sb.from('sport_calendar').select('*').eq('user_id', activeMatch.other.id);
+  if(error){
+    document.getElementById('chat-cal-content').innerHTML = '<div style="color:var(--muted);">Konnte Kalender nicht laden.</div>';
+    return;
+  }
+  const entries = sortByWeekdayTime(data || []);
+  if(entries.length === 0){
+    document.getElementById('chat-cal-content').innerHTML = '<div style="color:var(--muted);">Noch keine Einträge im Sportkalender.</div>';
+    return;
+  }
+  const emoji = (s) => SPORT_EMOJI[s] || '🏅';
+  document.getElementById('chat-cal-content').innerHTML = entries.map(c =>
+    `<div style="padding:4px 0;">${emoji(c.sportart)} ${escapeHtml(c.weekday)} · ${escapeHtml(c.time)} · ${escapeHtml(c.sportart)}</div>`
+  ).join('');
+}
+
 async function loadProfile(){
   await loadBlockedUsers();
+  await loadSportCalendar();
   const {data, error} = await sb.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
   if(error){ showMsg('profile-msg', 'Fehler beim Laden: ' + error.message, 'error'); return; }
   if(data){
@@ -2340,6 +2470,9 @@ document.getElementById('show-privacy-btn').addEventListener('click', showPrivac
 document.getElementById('open-privacy-link').addEventListener('click', showPrivacyNotice);
 document.getElementById('chat-report-btn').addEventListener('click', showReportForm);
 document.getElementById('chat-block-btn').addEventListener('click', handleBlockUser);
+document.getElementById('chat-cal-view-btn').addEventListener('click', toggleChatCalendarPanel);
+document.getElementById('chat-cal-close').addEventListener('click', () => document.getElementById('chat-cal-panel').classList.add('hidden'));
+document.getElementById('cal-add-btn').addEventListener('click', addSportCalendarEntry);
 document.getElementById('avatar-upload-btn').addEventListener('click', () => {
   document.getElementById('avatar-upload').click();
 });
