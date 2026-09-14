@@ -1873,9 +1873,9 @@ function renderAdCard(){
 }
 
 function renderAdEventCardHtml(offer){
-  const photoStyle = offer.image_url ? ` style="background:url('${escapeHtml(offer.image_url)}') center/cover;"` : '';
+  const bgStyle = offer.image_url ? `background:url('${escapeHtml(offer.image_url)}') center/cover;` : `background:var(--accent);`;
   return `<div class="event-card ad-event-card">
-    <div class="event-top" style="background:var(--accent);"${photoStyle}>
+    <div class="event-top" style="${bgStyle}">
       <div class="event-sport">🛍️ Anzeige</div>
     </div>
     <div class="event-body">
