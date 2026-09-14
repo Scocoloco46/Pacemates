@@ -241,6 +241,9 @@
   <!-- ===== EVENTS ===== -->
   <div id="screen-events" class="screen hidden">
     <div class="section-title" style="padding-bottom:8px;">📅 Events</div>
+    <div style="padding:0 18px 10px 18px;">
+      <button class="btn-secondary" id="events-filter-btn" style="width:100%;position:relative;">🔍 Filter<span class="tab-badge hidden" id="events-filter-count-badge" style="margin-left:6px;"></span></button>
+    </div>
     <div class="view-toggle">
       <button class="view-toggle-btn active" data-view="list" id="events-view-list-btn">📋 Liste</button>
       <button class="view-toggle-btn" data-view="map" id="events-view-map-btn">🗺️ Karte</button>
@@ -303,6 +306,28 @@
       </div>
       <button class="btn-primary" id="event-save-btn">Event erstellen</button>
       <button class="btn-secondary" id="event-cancel-btn">Abbrechen</button>
+    </div>
+  </div>
+
+  <!-- ===== FILTER FÜR EVENTS ===== -->
+  <div id="screen-events-filter" class="screen hidden">
+    <div class="section-title">🔍 Events filtern</div>
+    <div class="form">
+      <div class="field">
+        <label>Sportart</label>
+        <select id="events-filter-sport"><option value="">Alle Sportarten</option></select>
+      </div>
+      <div class="field">
+        <label>Ort</label>
+        <input type="text" id="events-filter-ort" placeholder="z.B. Zürich">
+      </div>
+      <div class="field">
+        <label>Umkreis (km)</label>
+        <input type="number" id="events-filter-radius-km" min="1" placeholder="z.B. 25">
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Wird zusammen mit dem Ort verwendet, um Events in der Nähe zu finden. Nur Events mit hinterlegtem Ort werden berücksichtigt.</div>
+      </div>
+      <button class="btn-primary" id="events-filter-apply-btn">Filter anwenden</button>
+      <button class="btn-secondary" id="events-filter-reset-btn">Filter zurücksetzen</button>
     </div>
   </div>
 
@@ -816,6 +841,7 @@ function openDiscoverFilter(){
   document.getElementById('screen-profile').classList.add('hidden');
   document.getElementById('screen-chat').classList.add('hidden');
   document.getElementById('screen-newevent').classList.add('hidden');
+  document.getElementById('screen-events-filter').classList.add('hidden');
   document.getElementById('screen-discover-filter').classList.remove('hidden');
 }
 
@@ -1042,12 +1068,15 @@ async function handleLogout(){
   document.getElementById('screen-events').classList.add('hidden');
   document.getElementById('screen-newevent').classList.add('hidden');
   document.getElementById('screen-discover-filter').classList.add('hidden');
+  document.getElementById('screen-events-filter').classList.add('hidden');
   document.getElementById('screen-auth').classList.remove('hidden');
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-password').value = '';
   document.getElementById('events-badge').classList.add('hidden');
   discoverFilters = {roles: [], genders: [], ageMin: null, ageMax: null, sports: [], levels: [], wohnort: '', radiusKm: null};
   updateFilterBadge();
+  eventFilters = {sportart: '', ort: '', radiusKm: null, filterLat: null, filterLng: null};
+  updateEventsFilterBadge();
   document.getElementById('p-is-trainer').checked = false;
   document.getElementById('trainer-fields').classList.add('hidden');
   document.getElementById('trainer-pricing-type').value = '';
@@ -1089,6 +1118,7 @@ function showTab(tab){
   document.getElementById('screen-chat').classList.add('hidden');
   document.getElementById('screen-newevent').classList.add('hidden');
   document.getElementById('screen-discover-filter').classList.add('hidden');
+  document.getElementById('screen-events-filter').classList.add('hidden');
   document.getElementById('tab-discover').classList.toggle('active', tab === 'discover');
   document.getElementById('tab-matches').classList.toggle('active', tab === 'matches');
   document.getElementById('tab-events').classList.toggle('active', tab === 'events');
@@ -1108,6 +1138,7 @@ function showNewEventScreen(){
   document.getElementById('screen-events').classList.add('hidden');
   document.getElementById('screen-profile').classList.add('hidden');
   document.getElementById('screen-chat').classList.add('hidden');
+  document.getElementById('screen-events-filter').classList.add('hidden');
   document.getElementById('screen-newevent').classList.remove('hidden');
 }
 
@@ -1200,6 +1231,100 @@ function fillEventSportSelect(){
   el.dataset.filled = '1';
 }
 
+let eventFilters = {sportart: '', ort: '', radiusKm: null, filterLat: null, filterLng: null};
+
+function fillEventsFilterSportSelect(){
+  const el = document.getElementById('events-filter-sport');
+  if(el.dataset.filled) return;
+  SPORTS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    el.appendChild(opt);
+  });
+  el.dataset.filled = '1';
+}
+
+function updateEventsFilterBadge(){
+  const badge = document.getElementById('events-filter-count-badge');
+  const count = (eventFilters.sportart ? 1 : 0) + (eventFilters.radiusKm ? 1 : 0);
+  if(count > 0){
+    badge.textContent = count;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+    badge.textContent = '';
+  }
+}
+
+function openEventsFilter(){
+  fillEventsFilterSportSelect();
+  document.getElementById('events-filter-sport').value = eventFilters.sportart || '';
+  document.getElementById('events-filter-ort').value = eventFilters.ort || '';
+  document.getElementById('events-filter-radius-km').value = eventFilters.radiusKm || '';
+  document.getElementById('screen-discover').classList.add('hidden');
+  document.getElementById('screen-matches').classList.add('hidden');
+  document.getElementById('screen-events').classList.add('hidden');
+  document.getElementById('screen-profile').classList.add('hidden');
+  document.getElementById('screen-chat').classList.add('hidden');
+  document.getElementById('screen-newevent').classList.add('hidden');
+  document.getElementById('screen-discover-filter').classList.add('hidden');
+  document.getElementById('screen-events-filter').classList.remove('hidden');
+}
+
+async function applyEventsFilter(){
+  const applyBtn = document.getElementById('events-filter-apply-btn');
+  eventFilters.sportart = document.getElementById('events-filter-sport').value;
+  eventFilters.ort = document.getElementById('events-filter-ort').value.trim();
+  const radiusVal = parseInt(document.getElementById('events-filter-radius-km').value) || null;
+  if(radiusVal && eventFilters.ort){
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Suche Ort…';
+    const coords = await geocodeAddress(eventFilters.ort);
+    applyBtn.disabled = false;
+    applyBtn.textContent = 'Filter anwenden';
+    if(!coords){
+      showSwipeError('Konnte den eingegebenen Ort nicht finden. Bitte Schreibweise prüfen oder Umkreis leer lassen.');
+      eventFilters.radiusKm = null;
+      eventFilters.filterLat = null;
+      eventFilters.filterLng = null;
+    } else {
+      eventFilters.radiusKm = radiusVal;
+      eventFilters.filterLat = coords.lat;
+      eventFilters.filterLng = coords.lng;
+    }
+  } else {
+    eventFilters.radiusKm = null;
+    eventFilters.filterLat = null;
+    eventFilters.filterLng = null;
+    if(radiusVal && !eventFilters.ort){
+      showSwipeError('Bitte einen Ort eingeben, um nach Umkreis zu filtern.');
+    }
+  }
+  document.getElementById('events-filter-radius-km').value = eventFilters.radiusKm || '';
+  document.getElementById('screen-events-filter').classList.add('hidden');
+  updateEventsFilterBadge();
+  showTab('events');
+}
+
+function resetEventsFilter(){
+  eventFilters = {sportart: '', ort: '', radiusKm: null, filterLat: null, filterLng: null};
+  document.getElementById('events-filter-sport').value = '';
+  document.getElementById('events-filter-ort').value = '';
+  document.getElementById('events-filter-radius-km').value = '';
+  updateEventsFilterBadge();
+}
+
+function matchesEventFilters(e){
+  const f = eventFilters;
+  if(f.sportart && e.sportart !== f.sportart) return false;
+  if(f.radiusKm && f.filterLat != null && f.filterLng != null){
+    if(e.lat == null || e.lng == null) return false;
+    const dist = haversineKm(f.filterLat, f.filterLng, e.lat, e.lng);
+    if(dist > f.radiusKm) return false;
+  }
+  return true;
+}
+
 let eventsViewMode = 'list';
 let lastLoadedEvents = [];
 let lastEventsProfileById = {};
@@ -1281,9 +1406,12 @@ async function loadEvents(){
   list.innerHTML = '<div class="empty-state">Lade Events…</div>';
   const {data: allEvents, error} = await sb.from('events').select('*').order('event_date', {ascending: true});
   if(error){ list.innerHTML = '<div class="empty-state">Fehler beim Laden: ' + error.message + '</div>'; return; }
-  const events = (allEvents || []).filter(e => !eventIsPast(e));
+  const hasActiveFilter = !!(eventFilters.sportart || eventFilters.radiusKm);
+  const events = (allEvents || []).filter(e => !eventIsPast(e) && matchesEventFilters(e));
   if(events.length === 0){
-    list.innerHTML = '<div class="empty-state">Keine anstehenden Events.<br>Erstelle das erste über den + Button!</div>';
+    list.innerHTML = hasActiveFilter
+      ? '<div class="empty-state">Keine Events gefunden, die zu deinem Filter passen.<br>Versuch es mit einem grösseren Umkreis oder setze den Filter zurück.</div>'
+      : '<div class="empty-state">Keine anstehenden Events.<br>Erstelle das erste über den + Button!</div>';
     return;
   }
   const eventIds = events.map(e => e.id);
@@ -1495,12 +1623,14 @@ async function geocodeAddress(address){
   try{
     const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(address);
     const res = await fetch(url, {headers: {'Accept-Language': 'de'}});
-    if(!res.ok) return null;
+    if(!res.ok){ console.warn('Geocoding fehlgeschlagen, HTTP-Status:', res.status); return null; }
     const data = await res.json();
     if(data && data[0]){
       return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon)};
     }
+    console.warn('Geocoding: keine Treffer für Adresse:', address);
   }catch(e){
+    console.warn('Geocoding-Fehler:', e.message);
     // Kein Abbruch: Event wird auch ohne Koordinaten gespeichert, taucht dann nur nicht auf der Karte auf
   }
   return null;
@@ -1526,6 +1656,7 @@ async function saveEvent(){
   const coords = await geocodeAddress(ort);
   const lat = coords ? coords.lat : null;
   const lng = coords ? coords.lng : null;
+  const geocodeFailed = !!ort && !coords;
   saveBtn.disabled = false;
   saveBtn.textContent = originalBtnText;
   if(editingEventId){
@@ -1538,6 +1669,9 @@ async function saveEvent(){
     if(data){
       await sb.from('event_participants').insert({event_id: data.id, user_id: currentUser.id});
     }
+  }
+  if(geocodeFailed){
+    showSwipeError('Konnte den Ort nicht automatisch auf der Karte finden. Event wurde trotzdem gespeichert, erscheint aber ohne Pin auf der Karten-Ansicht.');
   }
   document.getElementById('ev2-title').value = '';
   document.getElementById('ev2-ort').value = '';
@@ -2168,6 +2302,9 @@ document.getElementById('event-fab').addEventListener('click', openNewEventForm)
 document.getElementById('event-save-btn').addEventListener('click', saveEvent);
 document.getElementById('events-view-list-btn').addEventListener('click', () => setEventsView('list'));
 document.getElementById('events-view-map-btn').addEventListener('click', () => setEventsView('map'));
+document.getElementById('events-filter-btn').addEventListener('click', openEventsFilter);
+document.getElementById('events-filter-apply-btn').addEventListener('click', applyEventsFilter);
+document.getElementById('events-filter-reset-btn').addEventListener('click', resetEventsFilter);
 document.getElementById('event-cancel-btn').addEventListener('click', () => { editingEventId = null; showTab('events'); });
 document.getElementById('btn-pass').addEventListener('click', () => swipe(false));
 document.getElementById('btn-like').addEventListener('click', () => swipe(true));
