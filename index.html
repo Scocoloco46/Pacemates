@@ -1505,8 +1505,9 @@ async function loadEvents(){
         <div class="event-loc">📍 ${escapeHtml(e.ort || '—')}</div>
         <div class="event-meta">📅 ${escapeHtml(e.event_date || '')} ${escapeHtml(e.event_time || '')} · ${metaText}</div>
         <div class="event-meta">👤 Organisiert von ${organizerName}</div>
-        ${e.ort ? `<button class="map-toggle" data-event="${e.id}" data-ort="${escapeHtml(e.ort)}">🗺️ Auf Karte anzeigen</button>
-        <div class="event-map hidden" id="map-${e.id}"></div>` : ''}
+        ${e.ort ? (e.lat != null && e.lng != null
+          ? `<button class="map-toggle" data-event="${e.id}" data-lat="${e.lat}" data-lng="${e.lng}">🗺️ Auf Karte anzeigen</button><div class="event-map hidden" id="map-${e.id}"></div>`
+          : `<div style="font-size:11px;color:var(--muted);margin-top:4px;">🗺️ Ort konnte nicht automatisch auf der Karte gefunden werden.</div>`) : ''}
         ${joinAreaHtml}
         ${icsBtnHtml}
         ${creatorAreaHtml}
@@ -1538,8 +1539,12 @@ async function loadEvents(){
       const panel = document.getElementById('map-' + btn.dataset.event);
       if(!panel) return;
       if(panel.innerHTML === ''){
-        const src = 'https://www.google.com/maps?q=' + encodeURIComponent(btn.dataset.ort) + '&output=embed';
-        panel.innerHTML = '<iframe src="' + src + '" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>';
+        const lat = parseFloat(btn.dataset.lat);
+        const lng = parseFloat(btn.dataset.lng);
+        const d = 0.01;
+        const bbox = (lng - d) + ',' + (lat - d) + ',' + (lng + d) + ',' + (lat + d);
+        const src = 'https://www.openstreetmap.org/export/embed.html?bbox=' + bbox + '&marker=' + lat + ',' + lng;
+        panel.innerHTML = '<iframe src="' + src + '" loading="lazy"></iframe>';
       }
       panel.classList.toggle('hidden');
       btn.textContent = panel.classList.contains('hidden') ? '🗺️ Auf Karte anzeigen' : '🗺️ Karte ausblenden';
@@ -1618,21 +1623,36 @@ async function refreshEventsBadge(){
   badge.classList.remove('hidden');
 }
 
-async function geocodeAddress(address){
-  if(!address) return null;
+async function tryGeocodeQuery(query){
   try{
-    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(address);
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query);
     const res = await fetch(url, {headers: {'Accept-Language': 'de'}});
     if(!res.ok){ console.warn('Geocoding fehlgeschlagen, HTTP-Status:', res.status); return null; }
     const data = await res.json();
     if(data && data[0]){
       return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon)};
     }
-    console.warn('Geocoding: keine Treffer für Adresse:', address);
   }catch(e){
     console.warn('Geocoding-Fehler:', e.message);
-    // Kein Abbruch: Event wird auch ohne Koordinaten gespeichert, taucht dann nur nicht auf der Karte auf
   }
+  return null;
+}
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function geocodeAddress(address){
+  if(!address) return null;
+  // Adressen wie "Padelwerk, Workplace 2, Eichengasse 3, 4702 Oensingen" enthalten oft vorangestellte
+  // Firmen-/Gebäudenamen, mit denen Nominatim nichts anfangen kann. Deshalb probieren wir zuerst die
+  // volle Eingabe, und kürzen bei einem Fehlschlag schrittweise von vorne, bis nur noch "PLZ Ort" übrig ist.
+  const segments = address.split(',').map(s => s.trim()).filter(Boolean);
+  const attempts = segments.length > 0 ? segments.map((_, i) => segments.slice(i).join(', ')) : [address];
+  for(let i = 0; i < attempts.length; i++){
+    const result = await tryGeocodeQuery(attempts[i]);
+    if(result) return result;
+    if(i < attempts.length - 1) await sleep(350);
+  }
+  console.warn('Geocoding: keine Treffer für Adresse (auch nach Kürzen):', address);
   return null;
 }
 
