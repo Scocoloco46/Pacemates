@@ -136,6 +136,7 @@
   .ics-btn{margin-top:6px;background:var(--accent);border:none;color:#fff;font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;cursor:pointer;display:block;}
   .event-form-card{width:100%;max-width:280px;background:var(--card);border-radius:16px;padding:18px;text-align:left;color:var(--text);}
   .event-card{margin:0 18px 14px 18px;background:var(--card);border-radius:16px;border:1px solid var(--border);overflow:hidden;}
+  .ad-event-card{border:2px solid var(--accent);}
   .event-top{background:linear-gradient(135deg,var(--accent),#4FD8C3);color:#fff;padding:12px 16px;}
   .event-sport{font-weight:800;font-size:14px;}
   .event-body{padding:12px 16px;}
@@ -1444,6 +1445,7 @@ function eventIsPast(e){
 async function loadEvents(){
   const list = document.getElementById('event-list');
   list.innerHTML = '<div class="empty-state">Lade Events…</div>';
+  await loadAffiliateOffers();
   const {data: allEvents, error} = await sb.from('events').select('*').order('event_date', {ascending: true});
   if(error){ list.innerHTML = '<div class="empty-state">Fehler beim Laden: ' + error.message + '</div>'; return; }
   const hasActiveFilter = !!(eventFilters.sportart || eventFilters.radiusKm);
@@ -1489,7 +1491,7 @@ async function loadEvents(){
     (profiles || []).forEach(p => profileById[p.id] = p);
   }
 
-  list.innerHTML = events.map(e => {
+  const eventCardsHtml = events.map(e => {
     const emoji = SPORT_EMOJI[e.sportart] || '🏅';
     const count = countByEvent[e.id] || 0;
     const joined = !!joinedByEvent[e.id];
@@ -1553,7 +1555,28 @@ async function loadEvents(){
         ${creatorAreaHtml}
       </div>
     </div>`;
-  }).join('');
+  });
+
+  // Platzhalter für Werbung: alle EVENT_AD_FREQUENCY echten Events wird eine Werbekarte
+  // aus der "affiliate_offers"-Tabelle eingefügt (gleiche Datenquelle wie im Entdecken-Bereich).
+  const EVENT_AD_FREQUENCY = 4;
+  const cardsWithAds = [];
+  eventCardsHtml.forEach((html, idx) => {
+    cardsWithAds.push(html);
+    if(affiliateOffers.length > 0 && (idx + 1) % EVENT_AD_FREQUENCY === 0){
+      const offer = affiliateOffers[Math.floor(Math.random() * affiliateOffers.length)];
+      cardsWithAds.push(renderAdEventCardHtml(offer));
+    }
+  });
+  list.innerHTML = cardsWithAds.join('');
+
+  list.querySelectorAll('.ad-event-link-btn').forEach(btn => {
+    if(btn.dataset.url){
+      btn.addEventListener('click', () => window.open(btn.dataset.url, '_blank', 'noopener'));
+    } else {
+      btn.disabled = true;
+    }
+  });
 
   list.querySelectorAll('.join-btn[data-event]').forEach(btn => {
     btn.addEventListener('click', () => toggleJoinEvent(btn.dataset.event));
@@ -1847,6 +1870,21 @@ function renderAdCard(){
   } else {
     linkBtn.disabled = true;
   }
+}
+
+function renderAdEventCardHtml(offer){
+  const photoStyle = offer.image_url ? ` style="background:url('${escapeHtml(offer.image_url)}') center/cover;"` : '';
+  return `<div class="event-card ad-event-card">
+    <div class="event-top" style="background:var(--accent);"${photoStyle}>
+      <div class="event-sport">🛍️ Anzeige</div>
+    </div>
+    <div class="event-body">
+      <div style="font-weight:800;font-size:14px;margin-bottom:4px;">${escapeHtml(offer.title || '')}</div>
+      <div style="font-size:12px;color:#666;margin-bottom:10px;">${escapeHtml(offer.description || '')}</div>
+      <button type="button" class="btn-primary ad-event-link-btn" data-url="${offer.link_url ? escapeHtml(offer.link_url) : ''}">Zum Angebot</button>
+      <div style="font-size:10px;color:#999;margin-top:8px;">Affiliate-Link – wir erhalten ggf. eine Provision.</div>
+    </div>
+  </div>`;
 }
 
 function showSwipeError(text){
